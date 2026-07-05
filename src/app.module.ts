@@ -5,8 +5,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import databaseConfig from './config/database.config';
 import { HealthModule } from './health/health.module';
-import { CoreBankingModule } from './core-banking/core-banking.module';
-import { AdminModule } from './admin/admin.module';
+import { CoreBankingModule } from './modules/core-banking/core-banking.module';
+import { AdminModule } from './modules/core-banking/admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
