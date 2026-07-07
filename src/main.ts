@@ -1,7 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import { AppModule } from './app.module';
@@ -16,7 +19,7 @@ async function bootstrap() {
 
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 3000);
-  const apiPrefix = config.get<string>('API_PREFIX', 'api/v1');
+  const apiPrefix = 'api/v1';
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
 
   await app.register(helmet);

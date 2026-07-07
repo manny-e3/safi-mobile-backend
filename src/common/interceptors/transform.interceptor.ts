@@ -10,7 +10,10 @@ import { FastifyReply } from 'fastify';
 
 @Injectable()
 export class TransformInterceptor<T> implements NestInterceptor<T, unknown> {
-  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<unknown> {
+  intercept(
+    context: ExecutionContext,
+    next: CallHandler<T>,
+  ): Observable<unknown> {
     const reply = context.switchToHttp().getResponse<FastifyReply>();
 
     return next.handle().pipe(

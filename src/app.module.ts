@@ -6,7 +6,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import databaseConfig from './config/database.config';
 import { HealthModule } from './health/health.module';
 import { CoreBankingModule } from './modules/core-banking/core-banking.module';
-import { AdminModule } from './modules/core-banking/admin/admin.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -38,9 +38,6 @@ import { AppService } from './app.service';
     AdminModule,
   ],
   controllers: [AppController],
-  providers: [
-    AppService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
