@@ -7,6 +7,7 @@ import databaseConfig from './config/database.config';
 import { HealthModule } from './health/health.module';
 import { CoreBankingModule } from './modules/core-banking/core-banking.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { SafiModule } from './modules/safi/safi.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -36,6 +37,7 @@ import { AppService } from './app.service';
     HealthModule,
     CoreBankingModule,
     AdminModule,
+    SafiModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
