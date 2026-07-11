@@ -1,10 +1,14 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { SafiTransactionType } from '../../safi/entities/safi-transaction.entity';
+import { SafiService } from '../../safi/safi.service';
 import { Transaction, TransactionType } from './entities/transaction.entity';
 import { Wallet } from './entities/wallet.entity';
 
@@ -18,6 +22,8 @@ export class WalletService {
     @InjectRepository(Transaction)
     private readonly transactionRepository: Repository<Transaction>,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => SafiService))
+    private readonly safiService: SafiService,
   ) {}
 
   async createForUser(
@@ -37,6 +43,10 @@ export class WalletService {
 
   findByUserId(userId: string): Promise<Wallet | null> {
     return this.walletRepository.findOne({ where: { userId } });
+  }
+
+  findByAccountNumber(accountNumber: string): Promise<Wallet | null> {
+    return this.walletRepository.findOne({ where: { accountNumber } });
   }
 
   async getTransactions(userId: string): Promise<Transaction[]> {
@@ -93,6 +103,13 @@ export class WalletService {
         throw new BadRequestException('Insufficient balance');
       }
 
+      if (type === TransactionType.DEBIT) {
+        await this.safiService.assertWithdrawalAllowed(
+          wallet.accountNumber,
+          balanceAfter,
+        );
+      }
+
       wallet.balance = balanceAfter.toString();
       await walletRepository.save(wallet);
 
@@ -107,6 +124,20 @@ export class WalletService {
           reference: crypto.randomUUID(),
           description: description ?? null,
         }),
+      );
+
+      await this.safiService.recordTransaction(
+        wallet.accountNumber,
+        {
+          type:
+            type === TransactionType.CREDIT
+              ? SafiTransactionType.CREDIT
+              : SafiTransactionType.DEBIT,
+          amount: amount.toString(),
+          balanceAfter: balanceAfter.toString(),
+          reference: transaction.reference,
+        },
+        manager,
       );
 
       return { wallet, transaction };

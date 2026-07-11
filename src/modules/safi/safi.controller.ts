@@ -26,4 +26,14 @@ export class SafiController {
   ) {
     return this.safiService.update(accountNumber, dto);
   }
+
+  @Get('config/:accountNumber/dashboard')
+  getDashboard(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.getDashboard(accountNumber);
+  }
+
+  @Get('config/:accountNumber/history')
+  getHistory(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.getHistory(accountNumber);
+  }
 }

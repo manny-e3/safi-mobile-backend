@@ -23,6 +23,9 @@ export class SafiConfig extends BaseEntity {
   @Column({ type: 'bigint' })
   protectedSum: string;
 
+  @Column({ type: 'bigint' })
+  baselineBalance: string;
+
   @Column({
     type: 'enum',
     enum: GovernanceMode,
