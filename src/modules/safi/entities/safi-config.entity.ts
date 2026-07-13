@@ -36,6 +36,6 @@ export class SafiConfig extends BaseEntity {
   @Column({ type: 'enum', enum: ConfigFrequency })
   frequency: ConfigFrequency;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   expiresAt: Date;
 }

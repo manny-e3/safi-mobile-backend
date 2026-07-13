@@ -177,6 +177,17 @@ export class SafiService {
     return this.safiConfigRepository.save(config);
   }
 
+  async deactivate(accountNumber: string): Promise<{ success: boolean }> {
+    const config = await this.findByAccountNumber(accountNumber);
+    if (!config) {
+      throw new NotFoundException(
+        `No config found for account number ${accountNumber}`,
+      );
+    }
+    await this.safiConfigRepository.delete({ accountNumber });
+    return { success: true };
+  }
+
   async getDashboard(accountNumber: string): Promise<SafiDashboard> {
     const config = await this.getByAccountNumber(accountNumber);
 

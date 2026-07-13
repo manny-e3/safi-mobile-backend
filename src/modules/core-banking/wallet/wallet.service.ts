@@ -42,7 +42,12 @@ export class WalletService {
   }
 
   findByUserId(userId: string): Promise<Wallet | null> {
-    return this.walletRepository.findOne({ where: { userId } });
+    return this.walletRepository.findOne({
+      where: { userId },
+      relations: {
+        user: true,
+      },
+    });
   }
 
   findByAccountNumber(accountNumber: string): Promise<Wallet | null> {

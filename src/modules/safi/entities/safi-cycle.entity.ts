@@ -13,10 +13,10 @@ export class SafiCycle extends BaseEntity {
   @Column({ type: 'varchar', length: 11 })
   accountNumber: string;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   startDate: Date;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'datetime' })
   endDate: Date;
 
   @Column({ type: 'bigint' })

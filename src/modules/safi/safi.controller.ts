@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CreateSafiConfigDto } from './dto/create-safi-config.dto';
 import { UpdateSafiConfigDto } from './dto/update-safi-config.dto';
@@ -35,5 +35,10 @@ export class SafiController {
   @Get('config/:accountNumber/history')
   getHistory(@Param('accountNumber') accountNumber: string) {
     return this.safiService.getHistory(accountNumber);
+  }
+
+  @Delete('config/:accountNumber')
+  deactivate(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.deactivate(accountNumber);
   }
 }
