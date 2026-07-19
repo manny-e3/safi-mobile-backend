@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, EntityManager, LessThanOrEqual, Repository } from 'typeorm';
+import { Between, EntityManager, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { WalletService } from '../core-banking/wallet/wallet.service';
 import { CreateSafiConfigDto } from './dto/create-safi-config.dto';
 import { UpdateSafiConfigDto } from './dto/update-safi-config.dto';
@@ -36,6 +36,8 @@ export interface SafiDashboard {
   protected: { amount: string; status: 'untouched' | 'breached'; days: number };
   rulesMaintainedDays: number;
   complianceScore: number;
+  categories: { name: string; percent: number; amount: string; color: string }[];
+  weeklySpend: { week: string; thisMonth: number; lastMonth: number }[];
 }
 
 export interface SafiCycleSummary {
@@ -194,6 +196,9 @@ export class SafiService {
     const { start, end, totalDays } = this.getCycleWindow(config);
     const now = new Date();
 
+    const dbOffset = await this.getDbOffset();
+    const adjustedStart = new Date(start.getTime() + dbOffset);
+
     const dayOfCycle = Math.min(
       Math.max(
         Math.floor((now.getTime() - start.getTime()) / MS_PER_DAY) + 1,
@@ -207,7 +212,7 @@ export class SafiService {
     );
 
     const transactionsThisCycle = await this.safiTransactionRepository.find({
-      where: { accountNumber, createdAt: Between(start, now) },
+      where: { accountNumber, createdAt: MoreThanOrEqual(adjustedStart) },
       order: { createdAt: 'ASC' },
     });
 
@@ -253,6 +258,117 @@ export class SafiService {
     );
     const complianceScore = Math.round((breached ? 0 : 60) + pacingScore * 40);
 
+    // Fetch core banking transactions for category & weekly analysis
+    const coreTransactions = await this.walletService.getTransactionsByAccountNumber(
+      accountNumber,
+      adjustedStart,
+    );
+    const debits = coreTransactions.filter((t) => t.type === 'debit');
+
+    const categoryTotals: Record<string, bigint> = {
+      'Food & Dining': 0n,
+      'Transport': 0n,
+      'Bills & Utilities': 0n,
+      'Entertainment': 0n,
+      'Other': 0n,
+    };
+
+    debits.forEach((t) => {
+      const cat = this.categorizeTransaction(t.description);
+      categoryTotals[cat] += BigInt(t.amount);
+    });
+
+    const categoriesList = [
+      { name: 'Food & Dining', color: '#10B981' },
+      { name: 'Transport', color: '#3B82F6' },
+      { name: 'Bills & Utilities', color: '#EF4444' },
+      { name: 'Entertainment', color: '#FBBF24' },
+      { name: 'Other', color: '#8B5CF6' }
+    ].map((cat) => {
+      const amount = categoryTotals[cat.name] || 0n;
+      const pct = allocation > 0n ? Math.round((Number(amount) / Number(allocation)) * 100) : 0;
+      return {
+        name: cat.name,
+        percent: pct,
+        amount: amount.toString(),
+        color: cat.color,
+      };
+    });
+
+    const weeklySpendThisMonth = [0n, 0n, 0n, 0n];
+    debits.forEach((t) => {
+      const ageInDays = Math.floor((t.createdAt.getTime() - start.getTime()) / MS_PER_DAY);
+      if (ageInDays < 7) {
+        weeklySpendThisMonth[0] += BigInt(t.amount);
+      } else if (ageInDays < 14) {
+        weeklySpendThisMonth[1] += BigInt(t.amount);
+      } else if (ageInDays < 21) {
+        weeklySpendThisMonth[2] += BigInt(t.amount);
+      } else {
+        weeklySpendThisMonth[3] += BigInt(t.amount);
+      }
+    });
+
+    const prevCycle = await this.safiCycleRepository.findOne({
+      where: { accountNumber },
+      order: { endDate: 'DESC' },
+    });
+
+    const weeklySpendLastMonth = [0n, 0n, 0n, 0n];
+    if (prevCycle) {
+      const prevTransactions = await this.walletService.getTransactionsByAccountNumber(
+        accountNumber,
+        prevCycle.startDate,
+        prevCycle.endDate,
+      );
+      const prevDebits = prevTransactions.filter((t) => t.type === 'debit');
+      prevDebits.forEach((t) => {
+        const ageInDays = Math.floor(
+          (t.createdAt.getTime() - prevCycle.startDate.getTime()) / MS_PER_DAY,
+        );
+        if (ageInDays < 7) {
+          weeklySpendLastMonth[0] += BigInt(t.amount);
+        } else if (ageInDays < 14) {
+          weeklySpendLastMonth[1] += BigInt(t.amount);
+        } else if (ageInDays < 21) {
+          weeklySpendLastMonth[2] += BigInt(t.amount);
+        } else {
+          weeklySpendLastMonth[3] += BigInt(t.amount);
+        }
+      });
+    }
+
+    const weeklySpend = [
+      {
+        week: 'Wk 1',
+        thisMonth: Number(weeklySpendThisMonth[0]) / 100,
+        lastMonth: prevCycle
+          ? Number(weeklySpendLastMonth[0]) / 100
+          : Math.round((Number(allocation) * 0.15) / 100),
+      },
+      {
+        week: 'Wk 2',
+        thisMonth: Number(weeklySpendThisMonth[1]) / 100,
+        lastMonth: prevCycle
+          ? Number(weeklySpendLastMonth[1]) / 100
+          : Math.round((Number(allocation) * 0.2) / 100),
+      },
+      {
+        week: 'Wk 3',
+        thisMonth: Number(weeklySpendThisMonth[2]) / 100,
+        lastMonth: prevCycle
+          ? Number(weeklySpendLastMonth[2]) / 100
+          : Math.round((Number(allocation) * 0.25) / 100),
+      },
+      {
+        week: 'Wk 4',
+        thisMonth: Number(weeklySpendThisMonth[3]) / 100,
+        lastMonth: prevCycle
+          ? Number(weeklySpendLastMonth[3]) / 100
+          : Math.round((Number(allocation) * 0.1) / 100),
+      },
+    ];
+
     return {
       cycle: {
         label: `${start.toLocaleString('en-US', { month: 'long' }).toUpperCase()} CYCLE`,
@@ -272,7 +388,87 @@ export class SafiService {
       },
       rulesMaintainedDays: untouchedDays,
       complianceScore,
+      categories: categoriesList,
+      weeklySpend,
     };
+  }
+
+  private categorizeTransaction(description: string | null): string {
+    if (!description) return 'Other';
+    const desc = description.toLowerCase();
+
+    if (
+      desc.includes('restaurant') ||
+      desc.includes('food') ||
+      desc.includes('dining') ||
+      desc.includes('eats') ||
+      desc.includes('grocery') ||
+      desc.includes('groceries') ||
+      desc.includes('supermarket') ||
+      desc.includes('canteen') ||
+      desc.includes('kitchen') ||
+      desc.includes('kfc') ||
+      desc.includes('buka') ||
+      desc.includes('chow') ||
+      desc.includes('eat')
+    ) {
+      return 'Food & Dining';
+    }
+
+    if (
+      desc.includes('uber') ||
+      desc.includes('bolt') ||
+      desc.includes('taxify') ||
+      desc.includes('transport') ||
+      desc.includes('bus') ||
+      desc.includes('train') ||
+      desc.includes('flight') ||
+      desc.includes('airline') ||
+      desc.includes('fuel') ||
+      desc.includes('petrol') ||
+      desc.includes('ride')
+    ) {
+      return 'Transport';
+    }
+
+    if (
+      desc.includes('rent') ||
+      desc.includes('electric') ||
+      desc.includes('power') ||
+      desc.includes('water') ||
+      desc.includes('bill') ||
+      desc.includes('utilities') ||
+      desc.includes('dstv') ||
+      desc.includes('gotv') ||
+      desc.includes('startimes') ||
+      desc.includes('recharge') ||
+      desc.includes('airtime') ||
+      desc.includes('mtn') ||
+      desc.includes('airtel') ||
+      desc.includes('glo') ||
+      desc.includes('9mobile') ||
+      desc.includes('data')
+    ) {
+      return 'Bills & Utilities';
+    }
+
+    if (
+      desc.includes('netflix') ||
+      desc.includes('spotify') ||
+      desc.includes('youtube') ||
+      desc.includes('prime') ||
+      desc.includes('cinema') ||
+      desc.includes('showmax') ||
+      desc.includes('ticket') ||
+      desc.includes('game') ||
+      desc.includes('movie') ||
+      desc.includes('entertainment') ||
+      desc.includes('club')
+    ) {
+      return 'Entertainment';
+    }
+
+    return 'Other';
   }
 
   async getHistory(accountNumber: string): Promise<SafiHistory> {
@@ -337,11 +533,15 @@ export class SafiService {
     const protectedSum = BigInt(config.protectedSum);
     const allocation = income - protectedSum;
 
+    const dbOffset = await this.getDbOffset();
+    const adjustedStart = new Date(start.getTime() + dbOffset);
+    const adjustedEnd = new Date(end.getTime() + dbOffset);
+
     const balanceAtEnd = await this.getBalanceAsOf(config, end);
     const transactionsThisCycle = await this.safiTransactionRepository.find({
       where: {
         accountNumber: config.accountNumber,
-        createdAt: Between(start, end),
+        createdAt: Between(adjustedStart, adjustedEnd),
       },
       order: { createdAt: 'ASC' },
     });
@@ -396,10 +596,12 @@ export class SafiService {
     config: SafiConfig,
     asOf: Date,
   ): Promise<bigint> {
+    const dbOffset = await this.getDbOffset();
+    const adjustedAsOf = new Date(asOf.getTime() + dbOffset);
     const latest = await this.safiTransactionRepository.findOne({
       where: {
         accountNumber: config.accountNumber,
-        createdAt: LessThanOrEqual(asOf),
+        createdAt: LessThanOrEqual(adjustedAsOf),
       },
       order: { createdAt: 'DESC' },
     });
@@ -461,5 +663,19 @@ export class SafiService {
         break;
     }
     return expiresAt;
+  }
+
+  private async getDbOffset(): Promise<number> {
+    try {
+      const result = await this.safiConfigRepository.query('SELECT CURRENT_TIMESTAMP() as now');
+      if (result && result[0] && result[0].now) {
+        const dbNow = new Date(result[0].now);
+        const appNow = new Date();
+        return dbNow.getTime() - appNow.getTime();
+      }
+    } catch (err) {
+      console.error('Failed to get DB time offset:', err);
+    }
+    return 0;
   }
 }

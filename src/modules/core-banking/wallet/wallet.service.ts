@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, MoreThanOrEqual, Repository } from 'typeorm';
 import { SafiTransactionType } from '../../safi/entities/safi-transaction.entity';
 import { SafiService } from '../../safi/safi.service';
 import { Transaction, TransactionType } from './entities/transaction.entity';
@@ -60,6 +60,29 @@ export class WalletService {
 
     return this.transactionRepository.find({
       where: { walletId: wallet.id },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getTransactionsByAccountNumber(
+    accountNumber: string,
+    start?: Date,
+    end?: Date,
+  ): Promise<Transaction[]> {
+    const wallet = await this.findByAccountNumber(accountNumber);
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const where: any = { walletId: wallet.id };
+    if (start) {
+      if (end) {
+        where.createdAt = Between(start, end);
+      } else {
+        where.createdAt = MoreThanOrEqual(start);
+      }
+    }
+
+    return this.transactionRepository.find({
+      where,
       order: { createdAt: 'DESC' },
     });
   }
