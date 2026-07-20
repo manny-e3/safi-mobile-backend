@@ -9,7 +9,9 @@ export enum GovernanceMode {
 export enum ConfigFrequency {
   DAILY = 'daily',
   WEEKLY = 'weekly',
+  BIWEEKLY = 'biweekly',
   MONTHLY = 'monthly',
+  CUSTOM = 'custom',
 }
 
 @Entity('safi_configs')
@@ -35,6 +37,9 @@ export class SafiConfig extends BaseEntity {
 
   @Column({ type: 'enum', enum: ConfigFrequency })
   frequency: ConfigFrequency;
+
+  @Column({ type: 'int', nullable: true })
+  customDays?: number;
 
   @Column({ type: 'datetime' })
   expiresAt: Date;

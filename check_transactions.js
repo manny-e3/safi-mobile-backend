@@ -21,7 +21,7 @@ async function main() {
     console.log('Recent Safi Transactions:', JSON.stringify(safiRows, null, 2));
 
     const [safiConfigs] = await connection.execute(
-      'SELECT accountNumber, income, protectedSum, baselineBalance, frequency, expiresAt FROM safi_configs LIMIT 5'
+      'SELECT accountNumber, income, protectedSum, baselineBalance, frequency, customDays, expiresAt FROM safi_configs LIMIT 5'
     );
     console.log('Safi Configs:', JSON.stringify(safiConfigs, null, 2));
 

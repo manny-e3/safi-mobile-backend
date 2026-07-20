@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNumberString, Length, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNumberString, IsOptional, Length, Min } from 'class-validator';
 import {
   ConfigFrequency,
   GovernanceMode,
@@ -42,4 +42,14 @@ export class CreateSafiConfigDto {
   })
   @IsEnum(ConfigFrequency)
   frequency: ConfigFrequency;
+
+  @ApiProperty({
+    example: 15,
+    description: 'Custom number of days for custom frequency option',
+    required: false,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  customDays?: number;
 }

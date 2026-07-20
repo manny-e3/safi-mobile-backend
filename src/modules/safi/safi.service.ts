@@ -95,7 +95,8 @@ export class SafiService {
         baselineBalance: wallet.balance,
         governanceMode: dto.governanceMode,
         frequency: dto.frequency,
-        expiresAt: this.computeExpiresAt(dto.frequency, new Date()),
+        customDays: dto.customDays,
+        expiresAt: this.computeExpiresAt(dto.frequency, new Date(), dto.customDays),
       }),
     );
   }
@@ -171,9 +172,16 @@ export class SafiService {
       config.protectedSum = String(dto.protectedSum);
     if (dto.governanceMode !== undefined)
       config.governanceMode = dto.governanceMode;
-    if (dto.frequency !== undefined) {
-      config.frequency = dto.frequency;
-      config.expiresAt = this.computeExpiresAt(dto.frequency, new Date());
+    if (dto.customDays !== undefined) {
+      config.customDays = dto.customDays;
+    }
+    if (dto.frequency !== undefined || dto.customDays !== undefined) {
+      if (dto.frequency !== undefined) config.frequency = dto.frequency;
+      config.expiresAt = this.computeExpiresAt(
+        config.frequency,
+        new Date(),
+        config.customDays,
+      );
     }
 
     return this.safiConfigRepository.save(config);
@@ -517,7 +525,11 @@ export class SafiService {
     ) {
       const { start, end } = this.getCycleWindow(config);
       await this.closeCycle(config, start, end);
-      config.expiresAt = this.computeExpiresAt(config.frequency, end);
+      config.expiresAt = this.computeExpiresAt(
+        config.frequency,
+        end,
+        config.customDays,
+      );
       rolled = true;
     }
 
@@ -628,8 +640,14 @@ export class SafiService {
       case ConfigFrequency.WEEKLY:
         start.setDate(start.getDate() - 7);
         break;
+      case ConfigFrequency.BIWEEKLY:
+        start.setDate(start.getDate() - 14);
+        break;
       case ConfigFrequency.MONTHLY:
         start.setMonth(start.getMonth() - 1);
+        break;
+      case ConfigFrequency.CUSTOM:
+        start.setDate(start.getDate() - (config.customDays || 30));
         break;
     }
     const totalDays = Math.round(
@@ -649,7 +667,11 @@ export class SafiService {
     }
   }
 
-  private computeExpiresAt(frequency: ConfigFrequency, from: Date): Date {
+  private computeExpiresAt(
+    frequency: ConfigFrequency,
+    from: Date,
+    customDays?: number,
+  ): Date {
     const expiresAt = new Date(from);
     switch (frequency) {
       case ConfigFrequency.DAILY:
@@ -658,8 +680,14 @@ export class SafiService {
       case ConfigFrequency.WEEKLY:
         expiresAt.setDate(expiresAt.getDate() + 7);
         break;
+      case ConfigFrequency.BIWEEKLY:
+        expiresAt.setDate(expiresAt.getDate() + 14);
+        break;
       case ConfigFrequency.MONTHLY:
         expiresAt.setMonth(expiresAt.getMonth() + 1);
+        break;
+      case ConfigFrequency.CUSTOM:
+        expiresAt.setDate(expiresAt.getDate() + (customDays || 30));
         break;
     }
     return expiresAt;
