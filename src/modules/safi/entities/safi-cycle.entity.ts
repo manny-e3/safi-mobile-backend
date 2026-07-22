@@ -36,4 +36,10 @@ export class SafiCycle extends BaseEntity {
 
   @Column({ type: 'enum', enum: CycleOutcome })
   outcome: CycleOutcome;
+
+  @Column({ type: 'int', default: 0 })
+  overrideCount: number;
+
+  @Column({ type: 'bigint', default: '0' })
+  bufferUsed: string;
 }

@@ -14,6 +14,17 @@ export enum ConfigFrequency {
   CUSTOM = 'custom',
 }
 
+export enum CardBehaviour {
+  HARD_DECLINE = 'hard_decline',
+  AUTO_COVER = 'auto_cover',
+  BUFFER = 'buffer',
+}
+
+export enum RolloverPreference {
+  RETURN_TO_RESERVE = 'return_to_reserve',
+  ROLLOVER = 'rollover',
+}
+
 @Entity('safi_configs')
 export class SafiConfig extends BaseEntity {
   @Column({ type: 'varchar', length: 11, unique: true })
@@ -43,4 +54,36 @@ export class SafiConfig extends BaseEntity {
 
   @Column({ type: 'datetime' })
   expiresAt: Date;
+
+  @Column({
+    type: 'enum',
+    enum: CardBehaviour,
+    default: CardBehaviour.HARD_DECLINE,
+  })
+  cardBehaviour: CardBehaviour;
+
+  @Column({ type: 'bigint', default: '0' })
+  bufferAmount: string;
+
+  @Column({ type: 'bigint', default: '0' })
+  remainingBuffer: string;
+
+  @Column({
+    type: 'enum',
+    enum: RolloverPreference,
+    default: RolloverPreference.RETURN_TO_RESERVE,
+  })
+  rolloverPreference: RolloverPreference;
+
+  @Column({ type: 'boolean', default: false })
+  isPaused: boolean;
+
+  @Column({ type: 'int', default: 0 })
+  pauseCountThisYear: number;
+
+  @Column({ type: 'datetime', nullable: true })
+  pauseStartedAt: Date | null;
+
+  @Column({ type: 'boolean', default: false })
+  overrideActive: boolean;
 }

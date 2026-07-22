@@ -3,6 +3,8 @@ import { IsEnum, IsInt, IsNumberString, IsOptional, Length, Min } from 'class-va
 import {
   ConfigFrequency,
   GovernanceMode,
+  CardBehaviour,
+  RolloverPreference,
 } from '../entities/safi-config.entity';
 
 export class CreateSafiConfigDto {
@@ -52,4 +54,32 @@ export class CreateSafiConfigDto {
   @IsInt()
   @Min(1)
   customDays?: number;
+
+  @ApiProperty({
+    enum: CardBehaviour,
+    example: CardBehaviour.HARD_DECLINE,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(CardBehaviour)
+  cardBehaviour?: CardBehaviour;
+
+  @ApiProperty({
+    example: 5000,
+    description: 'Buffer amount in the smallest currency unit (e.g. kobo)',
+    required: false,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  bufferAmount?: number;
+
+  @ApiProperty({
+    enum: RolloverPreference,
+    example: RolloverPreference.RETURN_TO_RESERVE,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(RolloverPreference)
+  rolloverPreference?: RolloverPreference;
 }

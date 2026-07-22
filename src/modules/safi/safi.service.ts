@@ -14,6 +14,8 @@ import { UpdateSafiConfigDto } from './dto/update-safi-config.dto';
 import {
   ConfigFrequency,
   GovernanceMode,
+  CardBehaviour,
+  RolloverPreference,
   SafiConfig,
 } from './entities/safi-config.entity';
 import { CycleOutcome, SafiCycle } from './entities/safi-cycle.entity';
@@ -21,6 +23,7 @@ import {
   SafiTransaction,
   SafiTransactionType,
 } from './entities/safi-transaction.entity';
+import { SafiOverride, OverrideType } from './entities/safi-override.entity';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_ROLLOVER_ITERATIONS = 1000;
@@ -38,6 +41,7 @@ export interface SafiDashboard {
   complianceScore: number;
   categories: { name: string; percent: number; amount: string; color: string }[];
   weeklySpend: { week: string; thisMonth: number; lastMonth: number }[];
+  status: 'Protected' | 'On Track' | 'Warning' | 'Override Active' | 'Cycle Complete' | 'Paused';
 }
 
 export interface SafiCycleSummary {
@@ -64,6 +68,8 @@ export class SafiService {
     private readonly safiCycleRepository: Repository<SafiCycle>,
     @InjectRepository(SafiTransaction)
     private readonly safiTransactionRepository: Repository<SafiTransaction>,
+    @InjectRepository(SafiOverride)
+    private readonly safiOverrideRepository: Repository<SafiOverride>,
     @Inject(forwardRef(() => WalletService))
     private readonly walletService: WalletService,
   ) {}
@@ -87,6 +93,8 @@ export class SafiService {
 
     this.assertProtectedSumWithinIncome(dto.income, dto.protectedSum);
 
+    const bufferAmount = dto.bufferAmount || 0;
+
     return this.safiConfigRepository.save(
       this.safiConfigRepository.create({
         accountNumber: dto.accountNumber,
@@ -97,6 +105,10 @@ export class SafiService {
         frequency: dto.frequency,
         customDays: dto.customDays,
         expiresAt: this.computeExpiresAt(dto.frequency, new Date(), dto.customDays),
+        cardBehaviour: dto.cardBehaviour || CardBehaviour.HARD_DECLINE,
+        bufferAmount: String(bufferAmount),
+        remainingBuffer: String(bufferAmount),
+        rolloverPreference: dto.rolloverPreference || RolloverPreference.RETURN_TO_RESERVE,
       }),
     );
   }
@@ -107,15 +119,29 @@ export class SafiService {
     prospectiveBalance: bigint,
   ): Promise<void> {
     const config = await this.findByAccountNumber(accountNumber);
-    if (!config) return;
+    if (!config || config.isPaused) return;
+
+    const currentBalance = await this.getCurrentBalance(config);
+    const amount = currentBalance - prospectiveBalance;
+    if (amount <= 0n) return;
 
     const protectedSum = BigInt(config.protectedSum);
-    if (prospectiveBalance >= protectedSum) return;
+    const isBreachingReserve = prospectiveBalance < protectedSum;
 
-    if (config.governanceMode === GovernanceMode.STRICT) {
-      throw new BadRequestException(
-        `This withdrawal would drop your balance below your protected amount of ${config.protectedSum}`,
-      );
+    if (isBreachingReserve) {
+      if (config.cardBehaviour === CardBehaviour.HARD_DECLINE) {
+        throw new BadRequestException(
+          `Transaction declined. Your reserve of ${config.protectedSum} is protected.`,
+        );
+      } else if (config.cardBehaviour === CardBehaviour.BUFFER) {
+        const breachAmount = protectedSum - prospectiveBalance;
+        const remainingBuffer = BigInt(config.remainingBuffer);
+        if (breachAmount > remainingBuffer) {
+          throw new BadRequestException(
+            `Transaction declined. Your transaction exceeds your remaining buffer of ${config.remainingBuffer}.`,
+          );
+        }
+      }
     }
   }
 
@@ -141,6 +167,93 @@ export class SafiService {
       : this.safiTransactionRepository;
 
     await repository.save(repository.create({ accountNumber, ...data }));
+
+    const isUssd = data.reference.toLowerCase().includes('ussd');
+    if (config.isPaused || isUssd) return;
+
+    if (data.type === SafiTransactionType.DEBIT) {
+      const amount = BigInt(data.amount);
+      const balanceAfter = BigInt(data.balanceAfter);
+      const protectedSum = BigInt(config.protectedSum);
+      const income = BigInt(config.income);
+      const allocation = income - protectedSum;
+
+      let triggeredOverride = false;
+      let overrideType = OverrideType.AUTO_COVER;
+      let overrideReason = '';
+
+      if (balanceAfter < protectedSum) {
+        if (config.cardBehaviour === CardBehaviour.BUFFER) {
+          const balanceBefore = balanceAfter + amount;
+          let bufferUsedByThisTx = 0n;
+          if (balanceBefore < protectedSum) {
+            bufferUsedByThisTx = amount;
+          } else {
+            bufferUsedByThisTx = protectedSum - balanceAfter;
+          }
+
+          const originalRemaining = BigInt(config.remainingBuffer);
+          const updatedRemaining = originalRemaining - bufferUsedByThisTx;
+          config.remainingBuffer = (updatedRemaining > 0n ? updatedRemaining : 0n).toString();
+          
+          if (updatedRemaining <= 0n) {
+            config.cardBehaviour = CardBehaviour.HARD_DECLINE;
+          }
+        } else if (config.cardBehaviour === CardBehaviour.AUTO_COVER) {
+          triggeredOverride = true;
+          overrideType = OverrideType.AUTO_COVER;
+          overrideReason = 'Auto Cover triggered: Spend Pool exhausted.';
+        }
+      }
+
+      if (config.governanceMode === GovernanceMode.STRICT) {
+        const { totalDays } = this.getCycleWindow(config);
+        const dailySafeSpend = totalDays > 0 ? allocation / BigInt(totalDays) : 0n;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const dbOffset = await this.getDbOffset();
+        const adjustedToday = new Date(today.getTime() + dbOffset);
+
+        const transactionsToday = await repository.find({
+          where: {
+            accountNumber,
+            type: SafiTransactionType.DEBIT,
+            createdAt: MoreThanOrEqual(adjustedToday),
+          },
+        });
+
+        const todayTotal = transactionsToday.reduce(
+          (sum, t) => sum + BigInt(t.amount),
+          0n,
+        );
+
+        if (todayTotal > dailySafeSpend) {
+          triggeredOverride = true;
+          overrideType = OverrideType.LIMIT_BREACH;
+          overrideReason = `Daily Safe Spend of ${dailySafeSpend.toString()} exceeded.`;
+        }
+      }
+
+      if (triggeredOverride) {
+        config.overrideActive = true;
+        const overrideRepo = manager
+          ? manager.getRepository(SafiOverride)
+          : this.safiOverrideRepository;
+
+        await overrideRepo.save(
+          overrideRepo.create({
+            accountNumber,
+            type: overrideType,
+            reason: overrideReason,
+            amount: data.amount,
+          }),
+        );
+      }
+
+      await configRepository.save(config);
+    }
   }
 
   findByAccountNumber(accountNumber: string): Promise<SafiConfig | null> {
@@ -183,6 +296,14 @@ export class SafiService {
         config.customDays,
       );
     }
+    if (dto.cardBehaviour !== undefined)
+      config.cardBehaviour = dto.cardBehaviour;
+    if (dto.bufferAmount !== undefined) {
+      config.bufferAmount = String(dto.bufferAmount);
+      config.remainingBuffer = String(dto.bufferAmount);
+    }
+    if (dto.rolloverPreference !== undefined)
+      config.rolloverPreference = dto.rolloverPreference;
 
     return this.safiConfigRepository.save(config);
   }
@@ -228,7 +349,25 @@ export class SafiService {
     const protectedSum = BigInt(config.protectedSum);
     const currentBalance = await this.getCurrentBalance(config);
 
-    const allocation = income - protectedSum;
+    const prevCycle = await this.safiCycleRepository.findOne({
+      where: { accountNumber: config.accountNumber },
+      order: { endDate: 'DESC' },
+    });
+
+    let rolloverAmount = 0n;
+    if (
+      prevCycle &&
+      config.governanceMode === GovernanceMode.FLEXIBLE &&
+      config.rolloverPreference === RolloverPreference.ROLLOVER
+    ) {
+      const prevRemaining = BigInt(prevCycle.netAmount) + BigInt(prevCycle.allocation);
+      if (prevRemaining > 0n) {
+        rolloverAmount = prevRemaining;
+      }
+    }
+
+    const baseAllocation = income - protectedSum;
+    const allocation = baseAllocation + rolloverAmount;
     const remaining =
       currentBalance > protectedSum ? currentBalance - protectedSum : 0n;
     const used = allocation > remaining ? allocation - remaining : 0n;
@@ -264,7 +403,57 @@ export class SafiService {
       0,
       1 - Math.abs(actualSpendRatio - idealSpendRatio),
     );
-    const complianceScore = Math.round((breached ? 0 : 60) + pacingScore * 40);
+    // Fetch override events this cycle
+    const overrides = await this.safiOverrideRepository.find({
+      where: {
+        accountNumber,
+        createdAt: MoreThanOrEqual(adjustedStart),
+      },
+    });
+    const overrideCount = overrides.length;
+
+    const bufferAmount = BigInt(config.bufferAmount);
+    const remainingBuffer = BigInt(config.remainingBuffer);
+    const bufferUsed = bufferAmount > remainingBuffer ? bufferAmount - remainingBuffer : 0n;
+
+    let score = 100;
+    score -= overrideCount * 15;
+    if (config.governanceMode === GovernanceMode.STRICT && (breached || overrideCount > 0)) {
+      score -= 20;
+    }
+    if (bufferUsed > 0n) {
+      score -= 5;
+    }
+    if (overrideCount === 0) {
+      score += 20;
+    }
+    const complianceScore = Math.min(Math.max(score, 0), 100);
+
+    let spendPace: 'On Track' | 'Warning' | 'Doing Very Well' = 'On Track';
+    if (actualSpendRatio < idealSpendRatio - 0.15) {
+      spendPace = 'Doing Very Well';
+    } else if (actualSpendRatio > idealSpendRatio + 0.05) {
+      spendPace = 'Warning';
+    } else {
+      spendPace = 'On Track';
+    }
+
+    let status: 'Protected' | 'On Track' | 'Warning' | 'Override Active' | 'Cycle Complete' | 'Paused' = 'On Track';
+    if (config.isPaused) {
+      status = 'Paused';
+    } else if (config.overrideActive) {
+      status = 'Override Active';
+    } else if (breached) {
+      status = 'Warning';
+    } else if (daysLeft === 0) {
+      status = 'Cycle Complete';
+    } else if (complianceScore < 60) {
+      status = 'Warning';
+    } else if (complianceScore >= 85) {
+      status = 'Protected';
+    } else {
+      status = 'On Track';
+    }
 
     // Fetch core banking transactions for category & weekly analysis
     const coreTransactions = await this.walletService.getTransactionsByAccountNumber(
@@ -317,10 +506,7 @@ export class SafiService {
       }
     });
 
-    const prevCycle = await this.safiCycleRepository.findOne({
-      where: { accountNumber },
-      order: { endDate: 'DESC' },
-    });
+
 
     const weeklySpendLastMonth = [0n, 0n, 0n, 0n];
     if (prevCycle) {
@@ -396,8 +582,10 @@ export class SafiService {
       },
       rulesMaintainedDays: untouchedDays,
       complianceScore,
+      spendPace,
       categories: categoriesList,
       weeklySpend,
+      status,
     };
   }
 
@@ -516,6 +704,18 @@ export class SafiService {
 
   private async ensureCurrentCycle(config: SafiConfig): Promise<SafiConfig> {
     const now = new Date();
+
+    if (config.isPaused && config.pauseStartedAt) {
+      const nowTime = now.getTime();
+      const pauseStart = new Date(config.pauseStartedAt).getTime();
+      const pausedDays = (nowTime - pauseStart) / MS_PER_DAY;
+      if (pausedDays >= 14) {
+        config.isPaused = false;
+        config.pauseStartedAt = null;
+        await this.safiConfigRepository.save(config);
+      }
+    }
+
     let rolled = false;
 
     for (
@@ -533,7 +733,13 @@ export class SafiService {
       rolled = true;
     }
 
-    return rolled ? this.safiConfigRepository.save(config) : config;
+    if (rolled) {
+      config.remainingBuffer = config.bufferAmount;
+      config.overrideActive = false;
+      return this.safiConfigRepository.save(config);
+    }
+
+    return config;
   }
 
   private async closeCycle(
@@ -543,7 +749,26 @@ export class SafiService {
   ): Promise<void> {
     const income = BigInt(config.income);
     const protectedSum = BigInt(config.protectedSum);
-    const allocation = income - protectedSum;
+
+    const prevCycle = await this.safiCycleRepository.findOne({
+      where: { accountNumber: config.accountNumber },
+      order: { endDate: 'DESC' },
+    });
+
+    let rolloverAmount = 0n;
+    if (
+      prevCycle &&
+      config.governanceMode === GovernanceMode.FLEXIBLE &&
+      config.rolloverPreference === RolloverPreference.ROLLOVER
+    ) {
+      const prevRemaining = BigInt(prevCycle.netAmount) + BigInt(prevCycle.allocation);
+      if (prevRemaining > 0n) {
+        rolloverAmount = prevRemaining;
+      }
+    }
+
+    const baseAllocation = income - protectedSum;
+    const allocation = baseAllocation + rolloverAmount;
 
     const dbOffset = await this.getDbOffset();
     const adjustedStart = new Date(start.getTime() + dbOffset);
@@ -567,10 +792,30 @@ export class SafiService {
       balanceAtEnd < protectedSum ||
       transactionsThisCycle.some((t) => BigInt(t.balanceAfter) < protectedSum);
 
-    const actualSpendRatio =
-      allocation > 0n ? Number(used) / Number(allocation) : 0;
-    const pacingScore = Math.max(0, 1 - Math.abs(actualSpendRatio - 1));
-    const complianceScore = Math.round((breached ? 0 : 60) + pacingScore * 40);
+    const overrides = await this.safiOverrideRepository.find({
+      where: {
+        accountNumber: config.accountNumber,
+        createdAt: Between(adjustedStart, adjustedEnd),
+      },
+    });
+    const overrideCount = overrides.length;
+
+    const bufferAmount = BigInt(config.bufferAmount);
+    const remainingBuffer = BigInt(config.remainingBuffer);
+    const bufferUsed = bufferAmount > remainingBuffer ? bufferAmount - remainingBuffer : 0n;
+
+    let score = 100;
+    score -= overrideCount * 15;
+    if (config.governanceMode === GovernanceMode.STRICT && (breached || overrideCount > 0)) {
+      score -= 20;
+    }
+    if (bufferUsed > 0n) {
+      score -= 5;
+    }
+    if (overrideCount === 0) {
+      score += 20;
+    }
+    const complianceScore = Math.min(Math.max(score, 0), 100);
 
     const outcome =
       netAmount > 0n
@@ -590,6 +835,8 @@ export class SafiService {
         netAmount: netAmount.toString(),
         complianceScore,
         outcome,
+        overrideCount,
+        bufferUsed: bufferUsed.toString(),
       }),
     );
   }
@@ -705,5 +952,101 @@ export class SafiService {
       console.error('Failed to get DB time offset:', err);
     }
     return 0;
+  }
+
+  async pause(accountNumber: string): Promise<SafiConfig> {
+    const config = await this.getByAccountNumber(accountNumber);
+    if (config.pauseCountThisYear >= 3) {
+      throw new BadRequestException('Maximum of 3 pauses per calendar year exceeded.');
+    }
+    config.isPaused = true;
+    config.pauseCountThisYear += 1;
+    config.pauseStartedAt = new Date();
+    return this.safiConfigRepository.save(config);
+  }
+
+  async resume(accountNumber: string): Promise<SafiConfig> {
+    const config = await this.getByAccountNumber(accountNumber);
+    config.isPaused = false;
+    config.pauseStartedAt = null;
+    return this.safiConfigRepository.save(config);
+  }
+
+  async manualOverride(
+    accountNumber: string,
+    reason: string,
+    amount: string,
+  ): Promise<SafiConfig> {
+    const config = await this.getByAccountNumber(accountNumber);
+    config.overrideActive = true;
+
+    await this.safiOverrideRepository.save(
+      this.safiOverrideRepository.create({
+        accountNumber,
+        type: OverrideType.MANUAL,
+        reason,
+        amount,
+      }),
+    );
+
+    return this.safiConfigRepository.save(config);
+  }
+
+  async getProjection(accountNumber: string): Promise<{ month3: string; month6: string; month12: string }> {
+    const config = await this.getByAccountNumber(accountNumber);
+    
+    // Fetch completed cycles to calculate average savings
+    const cycles = await this.safiCycleRepository.find({
+      where: { accountNumber },
+      order: { endDate: 'DESC' },
+      take: 6, // look back up to 6 cycles
+    });
+
+    const income = BigInt(config.income);
+    const protectedSum = BigInt(config.protectedSum);
+    const allocation = income - protectedSum;
+    
+    let avgSavingsPerCycle = 0n;
+    if (cycles.length > 0) {
+      let totalSavings = 0n;
+      cycles.forEach((c) => {
+        const remaining = BigInt(c.netAmount) + BigInt(c.allocation);
+        if (remaining > 0n) {
+          totalSavings += remaining;
+        }
+      });
+      avgSavingsPerCycle = totalSavings / BigInt(cycles.length);
+    } else {
+      // Default baseline: assume 10% of spend pool is saved
+      avgSavingsPerCycle = allocation / 10n;
+    }
+
+    // Convert cycle savings to monthly projection
+    let monthlySavings = 0n;
+    switch (config.frequency) {
+      case ConfigFrequency.DAILY:
+        monthlySavings = avgSavingsPerCycle * 30n;
+        break;
+      case ConfigFrequency.WEEKLY:
+        monthlySavings = (avgSavingsPerCycle * 52n) / 12n;
+        break;
+      case ConfigFrequency.BIWEEKLY:
+        monthlySavings = (avgSavingsPerCycle * 26n) / 12n;
+        break;
+      case ConfigFrequency.MONTHLY:
+        monthlySavings = avgSavingsPerCycle;
+        break;
+      case ConfigFrequency.CUSTOM:
+        const days = BigInt(config.customDays || 30);
+        monthlySavings = days > 0n ? (avgSavingsPerCycle * 30n) / days : avgSavingsPerCycle;
+        break;
+    }
+
+    const currentReserve = BigInt(config.protectedSum);
+    const month3 = (currentReserve + monthlySavings * 3n).toString();
+    const month6 = (currentReserve + monthlySavings * 6n).toString();
+    const month12 = (currentReserve + monthlySavings * 12n).toString();
+
+    return { month3, month6, month12 };
   }
 }

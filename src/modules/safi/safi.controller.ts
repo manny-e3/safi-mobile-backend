@@ -41,4 +41,27 @@ export class SafiController {
   deactivate(@Param('accountNumber') accountNumber: string) {
     return this.safiService.deactivate(accountNumber);
   }
+
+  @Post('config/:accountNumber/pause')
+  pause(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.pause(accountNumber);
+  }
+
+  @Post('config/:accountNumber/resume')
+  resume(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.resume(accountNumber);
+  }
+
+  @Post('config/:accountNumber/override')
+  manualOverride(
+    @Param('accountNumber') accountNumber: string,
+    @Body() body: { reason: string; amount: string },
+  ) {
+    return this.safiService.manualOverride(accountNumber, body.reason, body.amount);
+  }
+
+  @Get('config/:accountNumber/projection')
+  getProjection(@Param('accountNumber') accountNumber: string) {
+    return this.safiService.getProjection(accountNumber);
+  }
 }
