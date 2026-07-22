@@ -39,6 +39,7 @@ export interface SafiDashboard {
   protected: { amount: string; status: 'untouched' | 'breached'; days: number };
   rulesMaintainedDays: number;
   complianceScore: number;
+  spendPace: 'On Track' | 'Warning' | 'Doing Very Well';
   categories: { name: string; percent: number; amount: string; color: string }[];
   weeklySpend: { week: string; thisMonth: number; lastMonth: number }[];
   status: 'Protected' | 'On Track' | 'Warning' | 'Override Active' | 'Cycle Complete' | 'Paused';
