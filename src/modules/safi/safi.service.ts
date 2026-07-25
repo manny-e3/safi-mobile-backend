@@ -53,6 +53,9 @@ export interface SafiCycleSummary {
   netAmount?: string;
   protectedAmount: string;
   complianceScore: number;
+  allocation?: string;
+  overrideCount?: number;
+  endDate?: Date;
 }
 
 export interface SafiHistory {
@@ -698,6 +701,9 @@ export class SafiService {
           netAmount: cycle.netAmount,
           protectedAmount: cycle.protectedSum,
           complianceScore: cycle.complianceScore,
+          allocation: cycle.allocation,
+          overrideCount: cycle.overrideCount,
+          endDate: cycle.endDate,
         })),
       ],
     };
