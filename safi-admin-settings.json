@@ -1,0 +1,241 @@
+{
+  "rules": [
+    {
+      "id": 1,
+      "name": "Standard Allocation Cycle — 30-day",
+      "description": "Allocation + protection enforced at transaction layer · All account tiers",
+      "status": "ACTIVE",
+      "accounts": 128147
+    },
+    {
+      "id": 2,
+      "name": "Hard Decline Override Threshold",
+      "description": "Card blocked when allocation exhausted · Strict governance tier",
+      "status": "ACTIVE",
+      "accounts": 3201
+    },
+    {
+      "id": 3,
+      "name": "Salary-Linked Allocation Trigger",
+      "description": "Auto-activates allocation rules on salary credit event · Premium tier",
+      "status": "INACTIVE",
+      "accounts": 580
+    },
+    {
+      "id": 1785698176360,
+      "name": "High-Volume Transaction Alert",
+      "description": "Flag transactions above N5,000,000 · Strict governance tier",
+      "status": "ACTIVE",
+      "accounts": 3254
+    }
+  ],
+  "controls": {
+    "governanceMode": "Flexible",
+    "allowedBehaviours": ["Hard Decline", "Auto Cover", "Buffer"],
+    "activeModes": ["Flexible", "Strict"],
+    "modeConfigurations": {
+      "Flexible": {
+        "status": "ACTIVE",
+        "allowedBehaviours": ["Hard Decline", "Auto Cover", "Buffer"],
+        "description": "Flexible allocation with auto-cover and optional buffer protection"
+      },
+      "Strict": {
+        "status": "ACTIVE",
+        "allowedBehaviours": ["Hard Decline", "Auto Cover"],
+        "description": "Strict balance & daily safe-spend enforcement"
+      }
+    }
+  },
+  "auditLogs": [
+    {
+      "id": 1785698176360,
+      "actor": "Admin (aboajah)",
+      "action": "Created new governance rule \"High-Volume Transaction Alert\" with status ACTIVE.",
+      "timestamp": "Just now"
+    },
+    {
+      "id": 1,
+      "actor": "System Engine",
+      "action": "Auto-synced 3 active governance rule schemas from primary vault.",
+      "timestamp": "12 mins ago"
+    },
+    {
+      "id": 2,
+      "actor": "Admin (aboajah)",
+      "action": "Configured \"Salary-Linked Allocation Trigger\" and deployed to Premium tier.",
+      "timestamp": "2 hours ago"
+    },
+    {
+      "id": 3,
+      "actor": "Compliance Officer",
+      "action": "Updated \"Hard Decline Override Threshold\" rules boundary.",
+      "timestamp": "1 day ago"
+    }
+  ],
+  "systemStatus": {
+    "coreBanking": "CONNECTED",
+    "decisionLayer": "ACTIVE",
+    "allocationEngine": "ACTIVE",
+    "behaviouralAnalytics": "SYNCING"
+  },
+  "deployments": {
+    "clusters": [
+      {
+        "name": "Production",
+        "version": "v2.4.1 · Active",
+        "status": "Connected",
+        "latency": "14ms",
+        "decisionLatency": "4ms",
+        "settlementHold": "22ms",
+        "healthRate": "100%"
+      },
+      {
+        "name": "Staging",
+        "version": "v2.4.2-rc1",
+        "status": "Connected",
+        "latency": "18ms",
+        "decisionLatency": "5ms",
+        "settlementHold": "25ms",
+        "healthRate": "98%"
+      },
+      {
+        "name": "Sandbox",
+        "version": "v2.5.0-beta",
+        "status": "Connected",
+        "latency": "24ms",
+        "decisionLatency": "6ms",
+        "settlementHold": "30ms",
+        "healthRate": "100%"
+      }
+    ]
+  },
+  "analytics": {
+    "trendData": [
+      {
+        "month": "Jun",
+        "val": 2.1,
+        "accounts": 6400
+      },
+      {
+        "month": "Jul",
+        "val": 2.3,
+        "accounts": 7100
+      },
+      {
+        "month": "Aug",
+        "val": 2.6,
+        "accounts": 8000
+      },
+      {
+        "month": "Sep",
+        "val": 2.9,
+        "accounts": 8900
+      },
+      {
+        "month": "Oct",
+        "val": 3.1,
+        "accounts": 9500
+      },
+      {
+        "month": "Nov",
+        "val": 3.2,
+        "accounts": 10100
+      },
+      {
+        "month": "Dec",
+        "val": 3.5,
+        "accounts": 11000
+      },
+      {
+        "month": "Jan",
+        "val": 3.4,
+        "accounts": 10800
+      },
+      {
+        "month": "Feb",
+        "val": 3.6,
+        "accounts": 11300
+      },
+      {
+        "month": "Mar",
+        "val": 3.8,
+        "accounts": 12000
+      },
+      {
+        "month": "Apr",
+        "val": 3.9,
+        "accounts": 12400
+      },
+      {
+        "month": "May",
+        "val": 4.1,
+        "accounts": 12847
+      }
+    ],
+    "ruleTriggers": {
+      "standardAllocation": 62,
+      "hardDecline": 28,
+      "salaryLinked": 10
+    },
+    "depositRetentionCurve": {
+      "protectedTotal": "₦2.84B",
+      "averageDays": "28.4 Days",
+      "breachLeakage": "1.42%"
+    }
+  },
+  "compliance": {
+    "reports": [
+      {
+        "period": "May 2026",
+        "index": 78.4,
+        "accounts": 12847,
+        "overrides": 142,
+        "status": "Completed"
+      },
+      {
+        "period": "April 2026",
+        "index": 81.2,
+        "accounts": 12400,
+        "overrides": 121,
+        "status": "Completed"
+      },
+      {
+        "period": "March 2026",
+        "index": 79.5,
+        "accounts": 12000,
+        "overrides": 135,
+        "status": "Completed"
+      },
+      {
+        "period": "February 2026",
+        "index": 82,
+        "accounts": 11300,
+        "overrides": 110,
+        "status": "Completed"
+      },
+      {
+        "period": "January 2026",
+        "index": 84.6,
+        "accounts": 10800,
+        "overrides": 98,
+        "status": "Completed"
+      }
+    ],
+    "checkpoints": [
+      {
+        "name": "CBN Ledgers Protection Guideline",
+        "status": "Certified"
+      },
+      {
+        "name": "Lagos Settlement Board Audit",
+        "status": "Passed"
+      },
+      {
+        "name": "Valeris Decision Engine Sandbox",
+        "status": "Audited"
+      }
+    ],
+    "webhookUrl": "https://api.novabank.com/v1/compliance/safi-exports",
+    "webhookFreq": "monthly"
+  }
+}
