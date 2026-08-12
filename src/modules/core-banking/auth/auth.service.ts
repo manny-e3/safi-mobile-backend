@@ -12,6 +12,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class CoreBankingAuthService {
@@ -67,7 +68,24 @@ export class CoreBankingAuthService {
     await this.userService.save(user);
 
     // TODO: send resetToken via email — do not expose in production
-    return { message: 'Password reset instructions sent' };
+    return { message: 'Password reset instructions sent', resetToken };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const user = await this.userService.findByResetToken(dto.token);
+    if (!user) throw new NotFoundException('Invalid or expired reset token');
+
+    const now = new Date();
+    if (!user.passwordResetExpires || user.passwordResetExpires < now) {
+      throw new ConflictException('Reset token has expired');
+    }
+
+    user.password = await bcrypt.hash(dto.password, 10);
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await this.userService.save(user);
+
+    return { message: 'Password has been reset successfully' };
   }
 
   private signToken(userId: string, email: string): string {

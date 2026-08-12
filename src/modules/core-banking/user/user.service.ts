@@ -28,6 +28,10 @@ export class UserService {
     return this.userRepository.findOne({ where: { id } });
   }
 
+  findByResetToken(token: string): Promise<CoreBankingUser | null> {
+    return this.userRepository.findOne({ where: { passwordResetToken: token } });
+  }
+
   save(user: CoreBankingUser): Promise<CoreBankingUser> {
     return this.userRepository.save(user);
   }
