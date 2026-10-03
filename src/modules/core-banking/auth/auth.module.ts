@@ -1,30 +1,32 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 import { CoreBankingUserModule } from '../user/user.module';
 import { CoreBankingWalletModule } from '../wallet/wallet.module';
+import { MailModule } from '../../mail/mail.module';
 import { CoreBankingAuthController } from './auth.controller';
 import { CoreBankingAuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
-    CoreBankingUserModule,
-    CoreBankingWalletModule,
     PassportModule,
     JwtModule.registerAsync({
-      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') || 'default-jwt-secret-change-me-in-production',
+        secret: config.get<string>('JWT_SECRET', 'super-secret-key-change-in-prod'),
         signOptions: {
-          expiresIn: config.get<string>('JWT_EXPIRES_IN', '1d') as any,
+          expiresIn: (config.get('JWT_EXPIRES_IN', '1d') as any),
         },
       }),
     }),
+    CoreBankingUserModule,
+    CoreBankingWalletModule,
+    MailModule,
   ],
   controllers: [CoreBankingAuthController],
   providers: [CoreBankingAuthService, JwtStrategy],
+  exports: [CoreBankingAuthService],
 })
 export class CoreBankingAuthModule {}

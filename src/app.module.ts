@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { CoreBankingModule } from './modules/core-banking/core-banking.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SafiModule } from './modules/safi/safi.module';
+import { MailModule } from './modules/mail/mail.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -38,6 +39,7 @@ import { AppService } from './app.service';
     CoreBankingModule,
     AdminModule,
     SafiModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

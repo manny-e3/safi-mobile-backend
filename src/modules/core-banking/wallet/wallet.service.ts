@@ -10,6 +10,7 @@ import { Between, DataSource, EntityManager, MoreThanOrEqual, Repository } from 
 import { SafiTransactionType } from '../../safi/entities/safi-transaction.entity';
 import { SafiService } from '../../safi/safi.service';
 import { Transaction, TransactionType } from './entities/transaction.entity';
+import { TransferWalletDto } from './dto/transfer-wallet.dto';
 import { Wallet } from './entities/wallet.entity';
 
 const ACCOUNT_NUMBER_LENGTH = 11;
@@ -192,5 +193,130 @@ export class WalletService {
       accountNumber += Math.floor(Math.random() * 10);
     }
     return accountNumber;
+  }
+
+  async transfer(
+    userId: string,
+    dto: TransferWalletDto,
+  ): Promise<{ wallet: Wallet; transaction: Transaction }> {
+    const amount = BigInt(dto.amount);
+    if (amount <= 0n) {
+      throw new BadRequestException('Amount must be greater than zero');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const walletRepository = manager.getRepository(Wallet);
+      const senderWallet = await walletRepository.findOne({
+        where: { userId },
+        relations: { user: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!senderWallet) throw new NotFoundException('Sender wallet not found');
+
+      const balanceBefore = BigInt(senderWallet.balance);
+      const balanceAfter = balanceBefore - amount;
+
+      if (balanceAfter < 0n) {
+        throw new BadRequestException('Insufficient balance to complete transfer');
+      }
+
+      // Assert SAFI protection rules
+      await this.safiService.assertWithdrawalAllowed(
+        senderWallet.accountNumber,
+        balanceAfter,
+      );
+
+      // Check if recipient is internal Meridian account
+      const recipientWallet = await walletRepository.findOne({
+        where: { accountNumber: dto.recipientAccountNumber },
+        relations: { user: true },
+      });
+
+      // Update sender balance
+      senderWallet.balance = balanceAfter.toString();
+      await walletRepository.save(senderWallet);
+
+      const transactionRepository = manager.getRepository(Transaction);
+
+      const recipientDesc = dto.recipientName
+        ? `${dto.recipientName} (${dto.recipientBank || 'Meridian Bank'})`
+        : `Account ${dto.recipientAccountNumber}`;
+      const memo = dto.narration ? ` - ${dto.narration}` : '';
+
+      // Create debit transaction for sender
+      const senderTx = await transactionRepository.save(
+        transactionRepository.create({
+          walletId: senderWallet.id,
+          type: TransactionType.DEBIT,
+          amount: amount.toString(),
+          balanceBefore: balanceBefore.toString(),
+          balanceAfter: balanceAfter.toString(),
+          reference: crypto.randomUUID(),
+          description: `Transfer to ${recipientDesc}${memo}`,
+        }),
+      );
+
+      // If internal recipient, credit their wallet and record transaction
+      if (recipientWallet && recipientWallet.id !== senderWallet.id) {
+        const recBalBefore = BigInt(recipientWallet.balance);
+        const recBalAfter = recBalBefore + amount;
+        recipientWallet.balance = recBalAfter.toString();
+        await walletRepository.save(recipientWallet);
+
+        await transactionRepository.save(
+          transactionRepository.create({
+            walletId: recipientWallet.id,
+            type: TransactionType.CREDIT,
+            amount: amount.toString(),
+            balanceBefore: recBalBefore.toString(),
+            balanceAfter: recBalAfter.toString(),
+            reference: crypto.randomUUID(),
+            description: `Transfer from ${senderWallet.user?.name || senderWallet.accountNumber}${memo}`,
+          }),
+        );
+      }
+
+      // Record in SAFI
+      await this.safiService.recordTransaction(
+        senderWallet.accountNumber,
+        {
+          type: SafiTransactionType.DEBIT,
+          amount: amount.toString(),
+          balanceAfter: balanceAfter.toString(),
+          reference: senderTx.reference,
+        },
+        manager,
+      );
+
+      return { wallet: senderWallet, transaction: senderTx };
+    });
+  }
+
+  async resolveAccount(accountNumber: string): Promise<{
+    accountNumber: string;
+    accountName: string | null;
+    bank: string;
+    isInternal: boolean;
+  }> {
+    const wallet = await this.walletRepository.findOne({
+      where: { accountNumber },
+      relations: { user: true },
+    });
+
+    if (wallet) {
+      return {
+        accountNumber,
+        accountName: wallet.user?.name || 'Meridian Account Holder',
+        bank: 'Meridian Bank',
+        isInternal: true,
+      };
+    }
+
+    return {
+      accountNumber,
+      accountName: null,
+      bank: 'External Institution',
+      isInternal: false,
+    };
   }
 }

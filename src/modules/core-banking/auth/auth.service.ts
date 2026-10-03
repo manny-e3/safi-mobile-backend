@@ -1,12 +1,15 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
+import { MailService } from '../../mail/mail.service';
 import { UserService } from '../user/user.service';
 import { WalletService } from '../wallet/wallet.service';
 import { LoginDto } from './dto/login.dto';
@@ -21,6 +24,7 @@ export class CoreBankingAuthService {
     private readonly walletService: WalletService,
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -38,7 +42,15 @@ export class CoreBankingAuthService {
       return createdUser;
     });
 
-    return { accessToken: this.signToken(user.id, user.email) };
+    return {
+      accessToken: this.signToken(user.id, user.email),
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+      },
+    };
   }
 
   async login(dto: LoginDto) {
@@ -48,11 +60,42 @@ export class CoreBankingAuthService {
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
-    return { accessToken: this.signToken(user.id, user.email) };
+    return {
+      accessToken: this.signToken(user.id, user.email),
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+      },
+    };
   }
 
   logout() {
     return { message: 'Logged out successfully' };
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.userService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const wallet = await this.walletService.findByUserId(userId);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+      },
+      wallet: wallet
+        ? {
+            id: wallet.id,
+            accountNumber: wallet.accountNumber,
+            balance: wallet.balance,
+          }
+        : null,
+    };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -67,8 +110,24 @@ export class CoreBankingAuthService {
     user.passwordResetExpires = expires;
     await this.userService.save(user);
 
-    // TODO: send resetToken via email — do not expose in production
-    return { message: 'Password reset instructions sent', resetToken };
+    // Send email via nodemailer
+    try {
+      await this.mailService.sendPasswordResetEmail(
+        user.email,
+        user.name,
+        resetToken,
+      );
+    } catch (err: any) {
+      console.error('Failed to send password reset email:', err);
+      throw new InternalServerErrorException(
+        'Failed to deliver password reset email. Please verify the email or try again later.',
+      );
+    }
+
+    return {
+      message: 'Password reset instructions have been sent to your email address.',
+      emailSent: true,
+    };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -84,6 +143,16 @@ export class CoreBankingAuthService {
     user.passwordResetToken = null;
     user.passwordResetExpires = null;
     await this.userService.save(user);
+
+    // Send confirmation email
+    try {
+      await this.mailService.sendPasswordResetSuccessEmail(
+        user.email,
+        user.name,
+      );
+    } catch (err: any) {
+      console.error('Failed to send password reset success email:', err);
+    }
 
     return { message: 'Password has been reset successfully' };
   }

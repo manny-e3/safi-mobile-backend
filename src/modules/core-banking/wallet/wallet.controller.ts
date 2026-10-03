@@ -12,6 +12,8 @@ import { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FundWalletDto } from './dto/fund-wallet.dto';
 import { WithdrawWalletDto } from './dto/withdraw-wallet.dto';
+import { TransferWalletDto } from './dto/transfer-wallet.dto';
+import { Param } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 
 interface AuthenticatedRequest extends FastifyRequest {
@@ -53,5 +55,18 @@ export class WalletController {
       BigInt(dto.amount),
       dto.description,
     );
+  }
+
+  @Post('transfer')
+  transfer(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: TransferWalletDto,
+  ) {
+    return this.walletService.transfer(req.user.id, dto);
+  }
+
+  @Get('resolve/:accountNumber')
+  resolveAccount(@Param('accountNumber') accountNumber: string) {
+    return this.walletService.resolveAccount(accountNumber);
   }
 }

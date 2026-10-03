@@ -13,6 +13,9 @@ export class CoreBankingUser extends BaseEntity {
   password: string;
 
   @Column({ nullable: true, type: 'varchar' })
+  phone: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
   passwordResetToken: string | null;
 
   @Column({ nullable: true, type: 'timestamp' })
